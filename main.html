@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TODO App</title>
+  <script src="https://cdn.jsdelivr.net/gh/alpinejs/alpine@v2.x.x/dist/alpine.min.js" defer></script>
+  <script src="https://unpkg.com/htmx.org@1.8.4"></script>
+</head>
+<body>
+  <div x-data="todoApp()">
+    <h1>TODO App</h1>
+
+    <!-- Formulaire de création de todo -->
+    <form hx-post="/todos" hx-target="this" @submit.prevent="createTodo">
+      <input type="text" x-model="newTodo.title" placeholder="Enter a new todo" />
+      <button type="submit">Add</button>
+    </form>
+
+    <!-- Filtre et tri des todos -->
+    <div>
+      <button @click="filterTodos('all')">All</button>
+      <button @click="filterTodos('active')">Active</button>
+      <button @click="filterTodos('completed')">Completed</button>
+      <button @click="sortTodos('asc')">Sort A-Z</button>
+      <button @click="sortTodos('desc')">Sort Z-A</button>
+    </div>
+
+    <!-- Liste des todos -->
+    <ul>
+      <template x-for="todo in filteredTodos" :key="todo.id">
+        <li>
+          <input type="checkbox" :checked="todo.completed" @change="toggleTodo(todo)"> 
+          <span x-text="todo.title" :class="{ 'completed': todo.completed }"></span>
+          <button hx-delete="/todos/:id" hx-target="this" @click="deleteTodo(todo)">Delete</button>
+        </li>
+      </template>
+    </ul>
+
+    <!-- Statistiques et actions en masse -->
+    <div>
+      <p>Completed: <span x-text="completedTodos.length"></span></p>
+      <p>Active: <span x-text="activeTodos.length"></span></p>
+      <button @click="markAllCompleted">Mark All Completed</button>
+      <button @click="clearCompleted">Clear Completed</button>
+    </div>
+  </div>
+
+  <script>
+    function todoApp() {
+      return {
+        todos: [], // Liste des todos
+        newTodo: { title: '' }, // Nouveau todo en cours de création
+        filteredTodos: [], // Todos filtrés
+        filterBy: 'all', // Filtre actuel ('all', 'active', 'completed')
+        sortBy: 'asc', // Tri actuel ('asc', 'desc')
+
+        // Initialisation des données
+        mounted() {
+          this.fetchTodos();
+        },
+
+        // Récupération des todos depuis le backend
+        fetchTodos() {
+          fetch('/todos')
+            .then(response => response.json())
+            .then(data => {
+              this.todos = data;
+              this.filterTodos();
+            });
+        },
+
+        // Création d'un nouveau todo
+        createTodo() {
+          fetch('/todos', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(this.newTodo)
+          })
+          .then(response => response.json())
+          .then(data => {
+            this.todos.push(data);
+            this.newTodo = { title: '' };
+            this.filterTodos();
+          });
+        },
+
+        // Basculement de l'état d'un todo
+        toggleTodo(todo) {
+          fetch(`/todos/${todo.id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ ...todo, completed: !todo.completed })
+          })
+          .then(response => response.json())
+          .then(data => {
+            const index = this.todos.findIndex(t => t.id === data.id);
+            this.todos[index] = data;
+            this.filterTodos();
+          });
+        },
+
+        // Suppression d'un todo
+        deleteTodo(todo) {
+          fetch(`/todos/${todo.id}`, {
+            method: 'DELETE'
+          })
+          .then(() => {
+            const index = this.todos.findIndex(t => t.id === todo.id);
+            this.todos.splice(index, 1);
+            this.filterTodos();
+          });
+        },
+
+        // Filtrage des todos
+        filterTodos() {
+          this.filteredTodos = this.todos.filter(todo => {
+            if (this.filterBy === 'all') return true;
+            if (this.filterBy === 'active') return !todo.completed;
+            if (this.filterBy === 'completed') return todo.completed;
+          });
+
+          if (this.sortBy === 'asc') {
+            this.filteredTodos.sort((a, b) => a.title.localeCompare(b.title));
+          } else {
+            this.filteredTodos.sort((a, b) => b.title.localeCompare(a.title));
+          }
+        },
+
+        // Tri des todos
+        sortTodos(order) {
+          this.sortBy = order;
+          this.filterTodos();
+        },
+
+        // Marquer tous les todos comme complétés
+        markAllCompleted() {
+          Promise.all(this.activeTodos.map(todo => {
+            return fetch(`/todos/${todo.id}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ ...todo, completed: true })
+            })
+            .then(response => response.json());
+          }))
+          .then(() => {
+            this.filterTodos();
+          });
+        },
+
+        // Supprimer tous les todos complétés
+        clearCompleted() {
+          Promise.all(this.completedTodos.map(todo => {
+            return fetch(`/todos/${todo.id}`, {
+              method: 'DELETE'
+            });
+          }))
+          .then(() => {
+            this.todos = this.activeTodos;
+            this.filterTodos();
+          });
+        },
+
+        // Calcul des todos actifs et complétés
+        get activeTodos() {
+          return this.todos.filter(todo => !todo.completed);
+        },
+        get completedTodos() {
+          return this.todos.filter(todo => todo.completed);
+        }
+      }
+    }
+  </script>
+</body>
+</html>
